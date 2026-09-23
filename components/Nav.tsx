@@ -26,6 +26,7 @@ import { ScanFace, Menu, X } from 'lucide-react';
 // cinematic landing page. So "How it works" and the brand mark point at
 // "/app", keeping the app's own navigation self-consistent.
 const links = [
+  { href: '/', label: 'Landing' },
   { href: '/app', label: 'How it works' },
   { href: '/detect', label: 'Live Detection' },
   { href: '/insights', label: 'Insights' },
@@ -44,7 +45,7 @@ export default function Nav() {
       >
         {/* Brand */}
         <Link
-          href="/app"
+          href="/"
           className="flex items-center gap-2 text-ink"
           onClick={() => setMobileOpen(false)}
         >
