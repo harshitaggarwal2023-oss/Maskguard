@@ -2,7 +2,8 @@
 
 import { io, Socket } from 'socket.io-client';
 
-const DEFAULT_GATEWAY_WS_URL = process.env.NEXT_PUBLIC_GATEWAY_WS_URL || 'http://localhost:4000';
+const DEFAULT_GATEWAY_WS_URL =
+  process.env.NEXT_PUBLIC_GATEWAY_WS_URL || 'https://maskguard-backend.onrender.com';
 
 let socket: Socket | null = null;
 let currentUrl: string = DEFAULT_GATEWAY_WS_URL;
@@ -13,7 +14,13 @@ let currentUrl: string = DEFAULT_GATEWAY_WS_URL;
 export function getGatewayUrl(): string {
   if (typeof window !== 'undefined') {
     const custom = localStorage.getItem('maskguard_gateway_url');
-    if (custom) return custom;
+    if (custom && (custom.includes('localhost') || custom.includes('127.0.0.1'))) {
+      localStorage.removeItem('maskguard_gateway_url');
+      return DEFAULT_GATEWAY_WS_URL;
+    }
+    if (custom) {
+      return custom;
+    }
   }
   return DEFAULT_GATEWAY_WS_URL;
 }

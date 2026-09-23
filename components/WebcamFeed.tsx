@@ -74,10 +74,14 @@ export default function WebcamFeed() {
       socket.connect();
 
       socket.off('detection_result');
+      socket.off('connect');
       socket.off('ready');
+      socket.off('disconnect');
       socket.off('connect_error');
 
+      socket.on('connect', () => setConnectionStatus('connected'));
       socket.on('ready', () => setConnectionStatus('connected'));
+      socket.on('disconnect', () => setConnectionStatus('idle'));
       socket.on('connect_error', () => setConnectionStatus('error'));
       socket.on('detection_result', (result: DetectionResult) => {
         setDetections(result.detections);

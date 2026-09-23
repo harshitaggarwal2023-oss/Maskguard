@@ -88,8 +88,9 @@ export default function StatsPanel({
               type="button"
               onClick={() => {
                 setGatewayUrl('');
-                setInputUrl(process.env.NEXT_PUBLIC_GATEWAY_WS_URL || 'http://localhost:4000');
-                setUrl(process.env.NEXT_PUBLIC_GATEWAY_WS_URL || 'http://localhost:4000');
+                const fallback = process.env.NEXT_PUBLIC_GATEWAY_WS_URL || 'https://maskguard-backend.onrender.com';
+                setInputUrl(fallback);
+                setUrl(fallback);
                 window.location.reload();
               }}
               className="text-inkmuted hover:text-ink px-2 py-1 rounded"

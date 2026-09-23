@@ -5,7 +5,8 @@ import TrainingCharts from '@/components/TrainingCharts';
 import GlassCard from '@/components/GlassCard';
 import { TrainingHistory } from '@/lib/types';
 
-const GATEWAY_HTTP_URL = process.env.NEXT_PUBLIC_GATEWAY_HTTP_URL || 'http://localhost:4000';
+const GATEWAY_HTTP_URL =
+  process.env.NEXT_PUBLIC_GATEWAY_HTTP_URL || 'https://maskguard-backend.onrender.com';
 
 export default function InsightsPage() {
   const [history, setHistory] = useState<TrainingHistory | null>(null);
