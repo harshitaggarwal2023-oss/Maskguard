@@ -1,0 +1,6 @@
+backend-node/
+backend-python/
+*.log
+.pm2/
+docker-compose.yml
+Dockerfile

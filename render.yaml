@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: maskguard-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    region: singapore
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ALLOWED_ORIGINS
+        value: "https://maskguard.vercel.app,http://localhost:3000,*"

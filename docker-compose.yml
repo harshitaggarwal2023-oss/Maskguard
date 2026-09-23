@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  backend-python:
+    build: ./backend-python
+    env_file: ./backend-python/.env
+    # Deliberately NOT published to the host — only reachable by
+    # backend-node over the internal Docker network below.
+    expose:
+      - '8000'
+    networks:
+      - internal
+    restart: unless-stopped
+
+  backend-node:
+    build: ./backend-node
+    env_file: ./backend-node/.env
+    environment:
+      - INFERENCE_SERVICE_URL=http://backend-python:8000
+    ports:
+      - '4000:4000'
+    depends_on:
+      - backend-python
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+  frontend:
+    # Merged site (landing + app) now lives at the repo root, not ./frontend.
+    build: .
+    env_file: ./.env
+    environment:
+      - NEXT_PUBLIC_GATEWAY_HTTP_URL=http://localhost:4000
+      - NEXT_PUBLIC_GATEWAY_WS_URL=http://localhost:4000
+    # One site, one port: 3000 serves the landing (/) AND the app (/app,
+    # /detect, /insights, /about).
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend-node
+    networks:
+      - public
+    restart: unless-stopped
+
+networks:
+  internal:
+    internal: true # no route to the outside world — protects backend-python
+  public:
+    driver: bridge
