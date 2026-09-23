@@ -58,8 +58,16 @@ with open(HISTORY_PATH, "rb") as f:
 
 # Face detector: OpenCV's bundled Haar cascade. Lightweight, no extra model
 # download required, good enough for a single front-facing webcam subject.
+cv2.setNumThreads(1)
 _cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 face_cascade = cv2.CascadeClassifier(_cascade_path)
+
+# Warmup model once at startup to avoid first-request initialization delay
+try:
+    _dummy = np.zeros((1, 224, 224, 3), dtype=np.float32)
+    _ = model(_dummy, training=False)
+except Exception as e:
+    print("[maskguard-inference] warmup warning:", e)
 
 
 class Detection(BaseModel):
@@ -110,9 +118,20 @@ async def infer(request: Request):
     if frame is None:
         raise HTTPException(status_code=400, detail="invalid image payload")
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Downscale safeguard if frame exceeds 480px in either dimension
+    orig_h, orig_w = frame.shape[:2]
+    max_dim = 480
+    scale = 1.0
+    detect_frame = frame
+    if max(orig_h, orig_w) > max_dim:
+        scale = max_dim / float(max(orig_h, orig_w))
+        detect_w = int(orig_w * scale)
+        detect_h = int(orig_h * scale)
+        detect_frame = cv2.resize(frame, (detect_w, detect_h), interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(detect_frame, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+        gray, scaleFactor=1.2, minNeighbors=4, minSize=(30, 30)
     )
 
     detections: List[Detection] = []
@@ -121,20 +140,30 @@ async def infer(request: Request):
         crops = []
         boxes = []
         for (x, y, w, h) in faces:
-            x, y = max(0, x), max(0, y)
-            face = frame[y : y + h, x : x + w]
+            # Rescale coordinates back to original frame dimensions
+            if scale != 1.0:
+                orig_x = int(x / scale)
+                orig_y = int(y / scale)
+                orig_box_w = int(w / scale)
+                orig_box_h = int(h / scale)
+            else:
+                orig_x, orig_y, orig_box_w, orig_box_h = int(x), int(y), int(w), int(h)
+
+            orig_x, orig_y = max(0, orig_x), max(0, orig_y)
+            face = frame[orig_y : orig_y + orig_box_h, orig_x : orig_x + orig_box_w]
             if face.size == 0:
                 continue
             face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-            face_rgb = cv2.resize(face_rgb, (224, 224))
+            face_rgb = cv2.resize(face_rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
             face_arr = img_to_array(face_rgb)
             face_arr = preprocess_input(face_arr)
             crops.append(face_arr)
-            boxes.append((int(x), int(y), int(w), int(h)))
+            boxes.append((orig_x, orig_y, orig_box_w, orig_box_h))
 
         if crops:
             batch = np.array(crops, dtype=np.float32)
-            preds = model.predict(batch, verbose=0)
+            # Direct tensor execution is much faster than model.predict on CPU
+            preds = model(batch, training=False).numpy()
 
             for box, pred in zip(boxes, preds):
                 # Binary output: pred is either shape (2,) softmax or (1,) sigmoid

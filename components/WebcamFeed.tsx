@@ -9,8 +9,8 @@ import GlassCard from './GlassCard';
 import { getSocket } from '@/lib/socket';
 import { Detection, DetectionResult, SessionStats } from '@/lib/types';
 
-const TARGET_FPS = 10;
-const JPEG_QUALITY = 0.7;
+const TARGET_FPS = 8;
+const JPEG_QUALITY = 0.65;
 
 type CameraState = 'idle' | 'consent' | 'requesting' | 'active' | 'denied' | 'unsupported';
 
@@ -19,10 +19,12 @@ export default function WebcamFeed() {
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isProcessingRef = useRef(false);
 
   const [cameraState, setCameraState] = useState<CameraState>('idle');
   const [detections, setDetections] = useState<Detection[]>([]);
   const [videoDims, setVideoDims] = useState({ width: 0, height: 0 });
+  const [sourceDims, setSourceDims] = useState({ width: 480, height: 360 });
   const [connectionStatus, setConnectionStatus] = useState<
     'idle' | 'connecting' | 'connected' | 'error'
   >('idle');
@@ -44,9 +46,11 @@ export default function WebcamFeed() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    isProcessingRef.current = false;
     const socket = getSocket();
     socket.disconnect();
     setConnectionStatus('idle');
+    setCameraState('idle');
   }, []);
 
   useEffect(() => stopCamera, [stopCamera]);
@@ -78,12 +82,23 @@ export default function WebcamFeed() {
       socket.off('ready');
       socket.off('disconnect');
       socket.off('connect_error');
+      socket.off('error_message');
 
       socket.on('connect', () => setConnectionStatus('connected'));
       socket.on('ready', () => setConnectionStatus('connected'));
-      socket.on('disconnect', () => setConnectionStatus('idle'));
-      socket.on('connect_error', () => setConnectionStatus('error'));
+      socket.on('disconnect', () => {
+        setConnectionStatus('idle');
+        isProcessingRef.current = false;
+      });
+      socket.on('connect_error', () => {
+        setConnectionStatus('error');
+        isProcessingRef.current = false;
+      });
+      socket.on('error_message', () => {
+        isProcessingRef.current = false;
+      });
       socket.on('detection_result', (result: DetectionResult) => {
+        isProcessingRef.current = false;
         setDetections(result.detections);
         setInferenceMs(result.inference_ms);
         setStats((prev) => {
@@ -106,16 +121,43 @@ export default function WebcamFeed() {
         const video = videoRef.current;
         const canvas = captureCanvasRef.current;
         if (!video || !canvas || video.readyState < 2) return;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        if (isProcessingRef.current) return;
+
+        // Downscale capture canvas to max 480px dimension to prevent high latency & memory overload
+        const MAX_DIM = 480;
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 480;
+        const scale = Math.min(1, MAX_DIM / Math.max(vw, vh));
+        const targetW = Math.round(vw * scale);
+        const targetH = Math.round(vh * scale);
+
+        canvas.width = targetW;
+        canvas.height = targetH;
+        setSourceDims((prev) => (prev.width !== targetW || prev.height !== targetH ? { width: targetW, height: targetH } : prev));
+
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, targetW, targetH);
+
+        isProcessingRef.current = true;
         canvas.toBlob(
           (blob) => {
-            if (!blob) return;
+            if (!blob) {
+              isProcessingRef.current = false;
+              return;
+            }
             blob.arrayBuffer().then((buf) => {
-              if (socket.connected) socket.emit('frame', buf);
+              if (socket.connected) {
+                socket.emit('frame', buf);
+                // Watchdog: release in-flight lock after 1.5s in case network packet is dropped
+                setTimeout(() => {
+                  isProcessingRef.current = false;
+                }, 1500);
+              } else {
+                isProcessingRef.current = false;
+              }
+            }).catch(() => {
+              isProcessingRef.current = false;
             });
           },
           'image/jpeg',
@@ -143,8 +185,8 @@ export default function WebcamFeed() {
               <DetectionOverlay
                 videoRef={videoRef}
                 detections={detections}
-                sourceWidth={videoDims.width}
-                sourceHeight={videoDims.height}
+                sourceWidth={sourceDims.width}
+                sourceHeight={sourceDims.height}
               />
             </div>
           )}

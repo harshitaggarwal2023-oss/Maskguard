@@ -44,6 +44,7 @@ const MAX_FRAMES_PER_SECOND_PER_SOCKET = 15; // hard ceiling, well above the 8-1
 const MAX_CONCURRENT_SOCKETS_PER_IP = 3;
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 app.use(helmet());
@@ -118,10 +119,17 @@ io.on('connection', (socket) => {
   const ip = socket.handshake.address;
   let frameCount = 0;
   let windowStart = Date.now();
+  let inFlight = false;
 
   socket.emit('ready', { message: 'connected to MaskGuard gateway' });
 
   socket.on('frame', async (payload) => {
+    // Drop incoming frame if previous frame is still being processed
+    // This prevents memory queue buildup on free-tier containers
+    if (inFlight) {
+      return;
+    }
+    inFlight = true;
     try {
       // --- rate limiting per-socket -----------------------------------
       const now = Date.now();
@@ -172,6 +180,8 @@ io.on('connection', (socket) => {
       // nothing about this request is written to disk or persisted anywhere.
     } catch (err) {
       socket.emit('error_message', { error: 'internal error processing frame' });
+    } finally {
+      inFlight = false;
     }
   });
 
